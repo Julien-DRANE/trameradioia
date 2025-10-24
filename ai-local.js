@@ -1,5 +1,5 @@
 /* IA locale (WebLLM) — réécriture “style antenne” sans clé
-   Dépendances : DOM de trame.html. Le script WebLLM sera injecté si absent.
+   Tolérant aux blocages CDN/Worker et verbeux en diagnostics.
 */
 (() => {
   const STATUS = () => document.getElementById('iaLocalStatus');
@@ -9,31 +9,101 @@
   let webllmClient = null;
   let webllmReady = false;
 
-  // CDNs & modèle
-  const WEBLLM_SRC    = "https://unpkg.com/@mlc-ai/web-llm/dist/web-llm.min.js";
-  const WEBLLM_WORKER = "https://unpkg.com/@mlc-ai/web-llm/dist/worker.js";
-  const WEBLLM_MODEL  = "Phi-3-mini-4k-instruct-q4f16_1-MLC"; // compact, FR ok
+  const WEBLLM_SCRIPT = "https://unpkg.com/@mlc-ai/web-llm/dist/web-llm.min.js";
+  const WORKER_CDN    = "https://unpkg.com/@mlc-ai/web-llm/dist/worker.js";
+  const WORKER_LOCAL  = "/vendor/web-llm/worker.js"; // ← fallback local (à créer)
+  const MODEL_NAME    = "Phi-3-mini-4k-instruct-q4f16_1-MLC"; // compact
 
   const text = (el, t) => { if (el) el.textContent = t; };
+  const log  = (...args) => console.log("[AI-LOCAL]", ...args);
 
-  // 🔧 Injecte le script WebLLM si absent (fix Live Server / timing)
+  // ---- DIAGNOSTIC ----
+  function printEnvDiag() {
+    const diag = [
+      `webllm: ${!!window.webllm}`,
+      `Worker: ${!!window.Worker}`,
+      `GPU: ${!!navigator.gpu}`,
+      `Cross-origin isolated: ${self.crossOriginIsolated === true}`,
+      `Protocol: ${location.protocol}`
+    ].join(" | ");
+    log(diag);
+    text(STATUS(), `Diagnostic: ${diag}`);
+  }
+
+  // Charge la lib web-llm si absente
   function ensureWebLLMScript() {
     return new Promise((resolve, reject) => {
-      if (window.webllm) return resolve();
+      if (window.webllm) return resolve(true);
       const s = document.createElement('script');
-      s.src = WEBLLM_SRC;
+      s.src = WEBLLM_SCRIPT;
       s.defer = true;
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error("Impossible de charger WebLLM depuis le CDN."));
+      s.onload = () => resolve(true);
+      s.onerror = () => reject(new Error("CDN web-llm.min.js indisponible."));
       document.head.appendChild(s);
     });
+  }
+
+  // Essaie d’instancier un worker (CDN ou local)
+  function tryCreateWorker(url) {
+    try {
+      const w = new Worker(url, { type: "module" });
+      return w;
+    } catch (e) {
+      log("Worker init failed:", url, e);
+      return null;
+    }
+  }
+
+  async function ensureWebLLM() {
+    if (webllmReady) return;
+
+    printEnvDiag();
+    await ensureWebLLMScript();
+
+    if (!window.Worker) {
+      throw new Error("Les Web Workers sont désactivés dans ce navigateur.");
+    }
+
+    text(STATUS(), "⏳ Initialisation de l’IA locale… (téléchargement du modèle)");
+
+    // 1) Essai avec worker CDN
+    let worker = tryCreateWorker(WORKER_CDN);
+
+    // 2) Si échec, essai worker local
+    if (!worker) {
+      text(STATUS(), "⚠️ Worker CDN bloqué, tentative avec worker local…");
+      worker = tryCreateWorker(WORKER_LOCAL);
+    }
+
+    if (!worker) {
+      throw new Error("Impossible de créer un Worker (CDN et local ont échoué). Vérifie l’URL du worker local et les extensions de sécurité.");
+    }
+
+    // wasmProxy: permet de tourner même sans WebGPU (plus lent)
+    webllmClient = new webllm.ChatWorkerClient(worker, { wasmProxy: true });
+
+    // Progression de chargement
+    webllmClient.setInitProgressCallback((p) => {
+      const pct = p?.progress != null ? Math.round(p.progress * 100) : null;
+      text(STATUS(), pct != null ? `⬇️ Téléchargement du modèle (${pct}%)…` : (p?.text || "Préparation du modèle…"));
+    });
+
+    try {
+      await webllmClient.reload({ model: MODEL_NAME });
+    } catch (e) {
+      // Message lisible si COEP/COOP ou CORS posent souci
+      throw new Error("Échec chargement modèle. Causes possibles: réseau bloqué, CORS, ou navigateur trop ancien. Détail: " + (e?.message || e));
+    }
+
+    webllmReady = true;
+    text(STATUS(), "✅ IA locale prête.");
+    setTimeout(() => text(STATUS(), ""), 2000);
   }
 
   function buildLocalInstruction() {
     const style = document.getElementById('iaStyle')?.value || 'journalistique';
     const longueur = document.getElementById('iaLongueur')?.value || 'conserve';
     const addr = document.getElementById('iaTutoiement')?.value || 'neutre';
-
     const styleMap = {
       journalistique: "Ton journalistique radio, naturel, fluide, transitions orales.",
       dynamique: "Ton dynamique et énergique, phrases courtes, transitions rythmées.",
@@ -50,7 +120,6 @@
       vous: "Adresse l'auditoire au 'vous'.",
       tu: "Adresse l'auditoire au 'tu'."
     };
-
     return [
       styleMap[style], lenMap[longueur], addrMap[addr],
       "Respecte strictement les faits. Écris pour l’oral antenne : connecteurs (d’abord, ensuite, enfin, en résumé), phrases naturelles.",
@@ -58,36 +127,6 @@
     ].join(" ");
   }
 
-  // 🚀 Prépare le moteur WebLLM (charge le script si besoin + worker + modèle)
-  async function ensureWebLLM() {
-    if (webllmReady) return;
-    await ensureWebLLMScript();
-
-    if (!window.Worker) {
-      throw new Error("Les Web Workers sont désactivés dans ce navigateur.");
-    }
-
-    text(STATUS(), "⏳ Initialisation de l’IA locale… (téléchargement du modèle)");
-
-    // Worker module depuis CDN
-    webllmClient = new webllm.ChatWorkerClient(
-      new Worker(WEBLLM_WORKER, { type: "module" }),
-      { wasmProxy: true } // permet de tourner même sans WebGPU (plus lent)
-    );
-
-    // Progression de téléchargement/compilation
-    webllmClient.setInitProgressCallback((p) => {
-      const pct = p?.progress != null ? Math.round(p.progress * 100) : null;
-      text(STATUS(), pct != null ? `⬇️ Téléchargement du modèle (${pct}%)…` : (p?.text || "Préparation du modèle…"));
-    });
-
-    await webllmClient.reload({ model: WEBLLM_MODEL });
-    webllmReady = true;
-    text(STATUS(), "✅ IA locale prête.");
-    setTimeout(() => text(STATUS(), ""), 2000);
-  }
-
-  // ✨ Action de réécriture
   async function rewriteWithLocalAI() {
     const out = OUT();
     const status = STATUS();
@@ -126,13 +165,12 @@
     } catch (e) {
       console.error(e);
       text(STATUS(), "❌ Erreur IA locale : " + (e?.message || e));
-      alert("Erreur IA locale. Vérifie le chargement CDN, utilise un navigateur récent (Chrome/Edge) et ouvre via http://localhost (pas file://).");
+      alert("Erreur IA locale.\n• Essaye un autre navigateur (Chrome/Edge récent)\n• Vérifie que /vendor/web-llm/worker.js existe\n• Ouvre via http://localhost (pas file://)\n• Désactive provisoirement les extensions de blocage.");
     } finally {
       btn.disabled = false;
     }
   }
 
-  // 🔌 Wiring
   document.addEventListener('DOMContentLoaded', () => {
     const btn = BTN();
     if (btn) btn.addEventListener('click', rewriteWithLocalAI);

@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trame - Rédiger une chronique radio</title>
+
+  <!-- CSS principal -->
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- jsPDF depuis CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+  <script src="https://unpkg.com/@mlc-ai/web-llm/dist/web-llm.min.js" defer></script>
+
+  <style>
+    /* 🎯 Styles de base pour les onglets */
+    .tabs { display: flex; gap: .5rem; flex-wrap: wrap; margin: 1rem 0; }
+    .tab-btn { border: 1px solid #e0e6ef; background: #f7f9fc; padding: .5rem .75rem; border-radius: 8px; cursor: pointer; }
+    .tab-btn.active { background: #dfe9ff; border-color: #7aa2ff; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .small { font-size: .9rem; color: #54667a; }
+    .row { display: grid; gap: .5rem; grid-template-columns: 1fr 1fr; }
+    .row > * { min-width: 0; }
+    .dev-field { margin-bottom: .75rem; }
+    .actions { display:flex; gap:.5rem; flex-wrap:wrap; }
+    details > summary { cursor: pointer; }
+    .split-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:.5rem; }
+    .split-2 { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
+    .chip { display:inline-block; padding:.15rem .5rem; border-radius:999px; background:#eef3ff; margin-right:.25rem; font-size:.85rem; }
+    textarea, input { width:100%; }
+  </style>
+</head>
+<body>
+  <!-- 🔹 Menu fixe -->
+  <nav class="navbar">
+    <a href="index.html">🏠 Accueil</a>
+    <a href="trame.html">✍️ Trame</a>
+    <a href="annexe.html">📑 Annexe</a>
+  </nav>
+
+  <header>
+    <h1>Trame</h1>
+    <h2>Rédige ta chronique radio</h2>
+  </header>
+
+  <main>
+    <!-- 🚦 Sélecteur d’onglet -->
+    <div class="tabs" role="tablist" aria-label="Modes de rédaction">
+      <button class="tab-btn active" data-tab="libre" role="tab" aria-selected="true" aria-controls="panel-libre">📝 Mode libre</button>
+      <button class="tab-btn" data-tab="guide" role="tab" aria-selected="false" aria-controls="panel-guide">🎯 Écriture guidée (texte à trous)</button>
+      <button class="tab-btn" data-tab="itw" role="tab" aria-selected="false" aria-controls="panel-itw">🎙️ Interview</button>
+    </div>
+
+    <!-- 📝 MODE LIBRE (formulaire existant) -->
+    <section id="panel-libre" class="tab-panel active" role="tabpanel" aria-labelledby="tab-libre">
+      <form class="trame-form" onsubmit="return false;">
+        <h2>Rappel : Les 5W du journalisme</h2>
+        <ul class="fivew">
+          <li><strong>Who ?</strong> Qui est concerné ?</li>
+          <li><strong>What ?</strong> De quoi s’agit-il ?</li>
+          <li><strong>Where ?</strong> Où cela se passe-t-il ?</li>
+          <li><strong>When ?</strong> Quand cela a-t-il lieu ?</li>
+          <li><strong>Why ?</strong> Pourquoi en parler ?</li>
+        </ul>
+
+        <h2>Introduction</h2>
+        <label for="intro1">1) Définition / phrase générale :</label>
+        <textarea id="intro1" rows="3"></textarea>
+
+        <label for="intro2">2) Problématique :</label>
+        <textarea id="intro2" rows="3"></textarea>
+
+        <label for="intro3">3) Annonce du plan :</label>
+        <textarea id="intro3" rows="3"></textarea>
+
+        <h2>Développement</h2>
+        <div id="dev-container">
+          <div class="dev-field">
+            <label>Argument 1 + exemple :</label>
+            <textarea rows="4"></textarea>
+          </div>
+        </div>
+        <button type="button" id="addArgBtn">➕ Ajouter un argument</button>
+
+        <h2>Conclusion</h2>
+        <label for="concl1">1) Résumé avec d’autres mots :</label>
+        <textarea id="concl1" rows="3"></textarea>
+
+        <label for="concl2">2) Nouvelle question :</label>
+        <textarea id="concl2" rows="3"></textarea>
+
+        <div class="actions">
+          <button type="button" id="compileBtn">✅ Valider et compiler</button>
+          <button type="button" id="resetBtn">🗑️ Nouvelle chronique</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- 🎯 MODE GUIDÉ (texte à trous élargi) -->
+    <section id="panel-guide" class="tab-panel" role="tabpanel" aria-labelledby="tab-guide">
+      <form class="trame-form" onsubmit="return false;">
+        <h2>Écriture guidée — chronique</h2>
+        <p class="small">Remplis les champs : le script se génère automatiquement. Tu peux modifier la trame. Les variables <code>{{ }}</code> seront remplacées.</p>
+
+        <div class="row">
+          <div>
+            <label for="g_radio">Nom de la radio :</label>
+            <input id="g_radio" type="text" placeholder="Radio Émeraude" />
+          </div>
+          <div>
+            <label for="g_college">Nom du collège :</label>
+            <input id="g_college" type="text" placeholder="Collège ***" />
+          </div>
+          <div>
+            <label for="g_theme">Thème / sujet :</label>
+            <input id="g_theme" type="text" placeholder="le harcèlement scolaire" />
+          </div>
+          <div>
+            <label for="g_date">Date (optionnelle) :</label>
+            <input id="g_date" type="text" placeholder="20 octobre 2025" />
+          </div>
+        </div>
+
+        <h3>Autour de la table</h3>
+        <div id="g_participants"></div>
+        <div class="actions" style="margin:.5rem 0 1rem;">
+          <button type="button" id="btnAddP">➕ Ajouter un intervenant</button>
+          <button type="button" id="btnClearP">🧹 Vider la liste</button>
+        </div>
+
+        <details open>
+          <summary><strong>Développement — points guidés</strong> <span class="small">(facultatif)</span></summary>
+          <div class="split-3">
+            <div>
+              <label for="g_dev1">Idée 1 :</label>
+              <input id="g_dev1" type="text" placeholder="constat / définition précise" />
+              <label for="g_ex1" class="small">Exemple 1 :</label>
+              <textarea id="g_ex1" rows="3" placeholder="Exemple court, témoin, chiffre…"></textarea>
+            </div>
+            <div>
+              <label for="g_dev2">Idée 2 :</label>
+              <input id="g_dev2" type="text" placeholder="cause / conséquence" />
+              <label for="g_ex2" class="small">Exemple 2 :</label>
+              <textarea id="g_ex2" rows="3" placeholder="Exemple court, ressource, citation…"></textarea>
+            </div>
+            <div>
+              <label for="g_dev3">Idée 3 :</label>
+              <input id="g_dev3" type="text" placeholder="solution / piste d’action" />
+              <label for="g_ex3" class="small">Exemple 3 :</label>
+              <textarea id="g_ex3" rows="3" placeholder="Conseil concret, lien, service d’aide…"></textarea>
+            </div>
+          </div>
+        </details>
+
+        <details open>
+          <summary><strong>Conclusion — phrases guidées</strong></summary>
+          <div class="split-2">
+            <div>
+              <label for="g_conc_resume">Résumé en une phrase :</label>
+              <textarea id="g_conc_resume" rows="2" placeholder="Ce qu’il faut retenir…"></textarea>
+            </div>
+            <div>
+              <label for="g_conc_ouverture">Ouverture / question :</label>
+              <textarea id="g_conc_ouverture" rows="2" placeholder="Et maintenant ? Que faire / où se renseigner ?"></textarea>
+            </div>
+          </div>
+          <label for="g_conc_appel" class="small">Appel à l’action (facultatif) :</label>
+          <input id="g_conc_appel" type="text" placeholder="Parlez-en, demandez de l’aide, contactez…" />
+        </details>
+
+        <details>
+          <summary>Modèle (éditable)</summary>
+          <p class="small">Tu peux modifier la trame ci-dessous. Variables disponibles : <span class="chip">{{radio}}</span><span class="chip">{{college}}</span><span class="chip">{{theme}}</span><span class="chip">{{date}}</span><span class="chip">{{participants}}</span><span class="chip">{{p1}}</span><span class="chip">{{dev1}}</span><span class="chip">{{ex1}}</span><span class="chip">{{dev2}}</span><span class="chip">{{ex2}}</span><span class="chip">{{dev3}}</span><span class="chip">{{ex3}}</span><span class="chip">{{conc_resume}}</span><span class="chip">{{conc_ouverture}}</span><span class="chip">{{conc_appel}}</span></p>
+          <textarea id="g_template" rows="16" style="width:100%;">
+Chers auditeurs, bonjour ! Nous sommes réunis aujourd’hui dans le studio de la {{radio}} du collège {{college}} {{date? (le {{date}}) :}} pour parler de {{theme}}.
+
+Autour de la table : {{participants}}.
+
+➡️ Introduction
+Bonjour à toutes et à tous, je m’appelle {{p1}} et aujourd’hui, on aborde {{theme}} : pourquoi c’est important et ce que cela change pour nous.
+
+➡️ Développement
+• Idée 1 : {{dev1}}
+  Exemple : {{ex1}}
+• Idée 2 : {{dev2}}
+  Exemple : {{ex2}}
+• Idée 3 : {{dev3}}
+  Exemple : {{ex3}}
+
+➡️ Conclusion
+Résumé : {{conc_resume}}
+Ouverture : {{conc_ouverture}}
+{{conc_appel}}
+
+Merci à {{participants}} pour leur participation, et merci à vous, chères auditrices et chers auditeurs, de nous avoir écoutés sur la {{radio}} ! À très bientôt.
+          </textarea>
+        </details>
+
+        <div class="actions" style="margin-top:1rem;">
+          <button type="button" id="btnGenGuide">✅ Générer le script guidé</button>
+          <button type="button" id="btnInsertGuide">📥 Insérer dans la ‘Chronique finale’</button>
+        </div>
+
+        <h3>Aperçu du script</h3>
+        <pre id="g_preview" style="white-space:pre-wrap; background:#f4f7fa; padding:1rem; border-radius:8px;"></pre>
+      </form>
+    </section>
+
+    <!-- 🎙️ MODE INTERVIEW -->
+    <section id="panel-itw" class="tab-panel" role="tabpanel" aria-labelledby="tab-itw">
+      <form class="trame-form" onsubmit="return false;">
+        <h2>Interview — trame spéciale</h2>
+        <p class="small">Prépare ton interview : introduction, présentation invité·e, questions, relances, conclusion et remerciements.</p>
+
+        <div class="row">
+          <div>
+            <label for="i_radio">Nom de la radio :</label>
+            <input id="i_radio" type="text" placeholder="Radio Émeraude" />
+          </div>
+          <div>
+            <label for="i_college">Nom du collège :</label>
+            <input id="i_college" type="text" placeholder="Collège ***" />
+          </div>
+          <div>
+            <label for="i_theme">Sujet de l’interview :</label>
+            <input id="i_theme" type="text" placeholder="prévention du harcèlement" />
+          </div>
+          <div>
+            <label for="i_date">Date (optionnelle) :</label>
+            <input id="i_date" type="text" placeholder="20 octobre 2025" />
+          </div>
+        </div>
+
+        <div class="split-2" style="margin-top:.5rem;">
+          <div>
+            <label for="i_interviewer">Interviewer·euse :</label>
+            <input id="i_interviewer" type="text" placeholder="Prénom 1" />
+          </div>
+          <div>
+            <label for="i_guest">Invité·e (nom + rôle) :</label>
+            <input id="i_guest" type="text" placeholder="Mme Dupont, CPE" />
+          </div>
+        </div>
+
+        <h3>Questions & relances</h3>
+        <div id="i_questions"></div>
+        <div class="actions" style="margin:.5rem 0 1rem;">
+          <button type="button" id="btnAddQ">➕ Ajouter une question</button>
+          <button type="button" id="btnClearQ">🧹 Vider les questions</button>
+        </div>
+
+        <details>
+          <summary>Modèle (éditable)</summary>
+          <p class="small">Variables : <span class="chip">{{i_radio}}</span><span class="chip">{{i_college}}</span><span class="chip">{{i_theme}}</span><span class="chip">{{i_date}}</span><span class="chip">{{i_interviewer}}</span><span class="chip">{{i_guest}}</span><span class="chip">{{i_bloc}}</span></p>
+          <textarea id="i_template" rows="16" style="width:100%;">
+Chères auditrices, chers auditeurs, bonjour ! Vous êtes sur {{i_radio}} au collège {{i_college}} {{i_date? (le {{i_date}}) :}}. Aujourd’hui, nous recevons {{i_guest}} pour parler de {{i_theme}}.
+
+➡️ Présentation
+{{i_interviewer}} — Bonjour et merci d’être avec nous. Pour commencer, pouvez-vous vous présenter en quelques mots ?
+
+➡️ Questions
+{{i_bloc}}
+
+➡️ Conclusion
+Merci {{i_guest}} pour vos éclairages. Un dernier mot pour nos auditeurs et auditrices ?
+
+Merci à toutes et tous de nous avoir écoutés sur {{i_radio}}. À très bientôt !
+          </textarea>
+        </details>
+
+        <div class="actions" style="margin-top:1rem;">
+          <button type="button" id="btnGenItw">✅ Générer l’interview</button>
+          <button type="button" id="btnInsertItw">📥 Insérer dans la ‘Chronique finale’</button>
+        </div>
+
+        <h3>Aperçu de l’interview</h3>
+        <pre id="i_preview" style="white-space:pre-wrap; background:#f4f7fa; padding:1rem; border-radius:8px;"></pre>
+      </form>
+    </section>
+
+    <!-- 🔻 Zone commune de sortie & export -->
+    <section>
+      <h2>Chronique finale</h2>
+      <pre id="resultat" style="white-space: pre-wrap; background:#f4f7fa; padding:1rem; border-radius:8px;"></pre>
+
+    <div class="actions" style="margin-top:.5rem;">
+      <button type="button" id="btnRewriteLocal">✨ Réécrire (IA locale — gratuit)</button>
+    </div>
+    <p id="iaLocalStatus" class="small" style="margin:.5rem 0 0; color:#54667a;"></p>
+
+
+      <div class="export">
+        <label for="fontSelect">Typographie :</label>
+        <select id="fontSelect">
+          <option value="times">Times</option>
+          <option value="helvetica" selected>Helvetica</option>
+          <option value="courier">Courier</option>
+        </select>
+
+        <label for="fontSize">Taille :</label>
+        <input type="number" id="fontSize" value="12" min="8" max="30" />
+
+        <button type="button" id="exportPdfBtn">📄 Exporter en PDF</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- JS de la page (séparé) -->
+  <script src="trame.js" defer></script>
+  <script src="ai-local.js" defer></script>
+
+</body>
+</html>
